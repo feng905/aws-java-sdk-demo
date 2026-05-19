@@ -10,7 +10,9 @@ import software.amazon.awssdk.awscore.exception.AwsErrorDetails;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * CloudFront Distribution 查询示例。
@@ -65,6 +67,7 @@ public class DomainGet {
                 .build()) {
 
             List<DistributionSummary> distributions = listAllDistributions(cloudFrontClient);
+            Map<String, CachePolicyConfig> cachePolicyCache = new HashMap<>();
 
             System.out.println("=== CloudFront Distribution 列表（区域: " + region.id() + "）===");
             System.out.println("Distribution 总数: " + distributions.size());
@@ -80,6 +83,28 @@ public class DomainGet {
                 System.out.println("    最后修改时间: " + nullSafeInstant(dist.lastModifiedTime()));
                 System.out.println("    证书 ARN: " + nullSafe(dist.viewerCertificate().acmCertificateArn()));
                 System.out.println("    源站列表: " + nullSafe(originsToString(dist.origins())));
+
+                DefaultCacheBehavior defaultBehavior = dist.defaultCacheBehavior();
+                if (defaultBehavior != null) {
+                    System.out.println("    [默认缓存行为]");
+                    System.out.println("      优先级: Default");
+                    System.out.println("      路径模式: * (默认)");
+                    System.out.println("      源站 ID: " + nullSafe(defaultBehavior.targetOriginId()));
+                    printCachePolicyInfo(cloudFrontClient, defaultBehavior.cachePolicyId(), cachePolicyCache);
+                }
+
+                CacheBehaviors cacheBehaviors = dist.cacheBehaviors();
+                if (cacheBehaviors != null && cacheBehaviors.items() != null && !cacheBehaviors.items().isEmpty()) {
+                    List<CacheBehavior> behaviorItems = cacheBehaviors.items();
+                    for (int j = 0; j < behaviorItems.size(); j++) {
+                        CacheBehavior behavior = behaviorItems.get(j);
+                        System.out.println("    [缓存行为 " + (j + 1) + "]");
+                        System.out.println("      优先级: " + (j + 1));
+                        System.out.println("      路径模式: " + nullSafe(behavior.pathPattern()));
+                        System.out.println("      源站 ID: " + nullSafe(behavior.targetOriginId()));
+                        printCachePolicyInfo(cloudFrontClient, behavior.cachePolicyId(), cachePolicyCache);
+                    }
+                }
             }
 
         } catch (CloudFrontException ex) {
@@ -155,6 +180,66 @@ public class DomainGet {
 
     private static String nullSafe(String value) {
         return value == null ? "-" : value;
+    }
+
+    private static void printCachePolicyInfo(CloudFrontClient client, String policyId,
+            Map<String, CachePolicyConfig> cache) {
+        if (policyId == null || policyId.isEmpty()) {
+            System.out.println("      缓存策略: 未配置");
+            return;
+        }
+
+        CachePolicyConfig config = cache.get(policyId);
+        if (config == null) {
+            try {
+                config = client.getCachePolicy(GetCachePolicyRequest.builder().id(policyId).build())
+                        .cachePolicy().cachePolicyConfig();
+                cache.put(policyId, config);
+            } catch (Exception e) {
+                System.out.println("      缓存策略 ID: " + policyId + " (获取详情失败)");
+                return;
+            }
+        }
+
+        System.out.println("      缓存策略名: " + nullSafe(config.name()));
+        System.out.println("      缓存策略详情:");
+        System.out.println("        最小 TTL: " + config.minTTL());
+        System.out.println("        默认 TTL: " + config.defaultTTL());
+        System.out.println("        最大 TTL: " + config.maxTTL());
+
+        ParametersInCacheKeyAndForwardedToOrigin params = config.parametersInCacheKeyAndForwardedToOrigin();
+        if (params != null) {
+            System.out.println("        Gzip 压缩: " + params.enableAcceptEncodingGzip());
+            System.out.println("        Brotli 压缩: " + params.enableAcceptEncodingBrotli());
+
+            CachePolicyHeadersConfig headersConfig = params.headersConfig();
+            if (headersConfig != null) {
+                System.out.println("        Headers 行为: " + headersConfig.headerBehavior());
+                if (headersConfig.headers() != null && headersConfig.headers().items() != null
+                        && !headersConfig.headers().items().isEmpty()) {
+                    System.out.println("        Headers 白名单: " + String.join(", ", headersConfig.headers().items()));
+                }
+            }
+
+            CachePolicyCookiesConfig cookiesConfig = params.cookiesConfig();
+            if (cookiesConfig != null) {
+                System.out.println("        Cookies 行为: " + cookiesConfig.cookieBehavior());
+                if (cookiesConfig.cookies() != null && cookiesConfig.cookies().items() != null
+                        && !cookiesConfig.cookies().items().isEmpty()) {
+                    System.out.println("        Cookies 白名单: " + String.join(", ", cookiesConfig.cookies().items()));
+                }
+            }
+
+            CachePolicyQueryStringsConfig queryStringsConfig = params.queryStringsConfig();
+            if (queryStringsConfig != null) {
+                System.out.println("        Query Strings 行为: " + queryStringsConfig.queryStringBehavior());
+                if (queryStringsConfig.queryStrings() != null && queryStringsConfig.queryStrings().items() != null
+                        && !queryStringsConfig.queryStrings().items().isEmpty()) {
+                    System.out.println("        Query Strings 白名单: "
+                            + String.join(", ", queryStringsConfig.queryStrings().items()));
+                }
+            }
+        }
     }
 
     private static String nullSafeInstant(Instant instant) {
