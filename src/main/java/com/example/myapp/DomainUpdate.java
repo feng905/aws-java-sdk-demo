@@ -1,5 +1,7 @@
 package com.example.myapp;
 
+import java.util.Arrays;
+import java.util.List;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
@@ -19,6 +21,7 @@ import software.amazon.awssdk.awscore.exception.AwsErrorDetails;
  * 4) distributionId（Distribution ID，必填）
  * 5) enabled（是否启用，true/false，可选）
  * 6) comment（备注，可选）
+ * 7) updateBehavior（是否更新缓存行为，true/false，可选）
  *
  * 环境变量：
  * - AWS_ACCESS_KEY_ID
@@ -27,6 +30,7 @@ import software.amazon.awssdk.awscore.exception.AwsErrorDetails;
  * - CF_DISTRIBUTION_ID
  * - CF_ENABLED
  * - CF_COMMENT
+ * - CF_UPDATE_BEHAVIOR
  *
  * 运行示例（推荐：环境变量方式）：
  * export AWS_ACCESS_KEY_ID="<YOUR_AK>"
@@ -35,6 +39,7 @@ import software.amazon.awssdk.awscore.exception.AwsErrorDetails;
  * export CF_DISTRIBUTION_ID="E1234567890ABC"
  * export CF_ENABLED="true"
  * export CF_COMMENT="Updated comment"
+ * export CF_UPDATE_BEHAVIOR="true"
  * mvn -q exec:java -Dexec.mainClass=com.example.myapp.DomainUpdate
  */
 public class DomainUpdate {
@@ -49,6 +54,9 @@ public class DomainUpdate {
     private static final String ENV_CF_DISTRIBUTION_ID = "CF_DISTRIBUTION_ID";
     private static final String ENV_CF_ENABLED = "CF_ENABLED";
     private static final String ENV_CF_COMMENT = "CF_COMMENT";
+    private static final String ENV_CF_UPDATE_BEHAVIOR = "CF_UPDATE_BEHAVIOR";
+
+    private static final List<String> NO_CACHE_EXTENSIONS = Arrays.asList("*.php", "*.jsp", "*.asp");
 
     public static void main(String[] args) {
         String accessKeyId = resolveValue(args, 0, ENV_AWS_ACCESS_KEY_ID, DEFAULT_ACCESS_KEY_ID);
@@ -57,6 +65,7 @@ public class DomainUpdate {
         String distributionId = resolveValue(args, 3, ENV_CF_DISTRIBUTION_ID, "");
         String enabledArg = resolveValue(args, 4, ENV_CF_ENABLED, "false");
         String commentArg = resolveValue(args, 5, ENV_CF_COMMENT, "");
+        String updateBehaviorArg = resolveValue(args, 6, ENV_CF_UPDATE_BEHAVIOR, "false");
 
         if (accessKeyId.isEmpty() || secretAccessKey.isEmpty()) {
             System.err.println("AK/SK 未提供。请通过参数或环境变量提供：AWS_ACCESS_KEY_ID、AWS_SECRET_ACCESS_KEY");
@@ -93,6 +102,20 @@ public class DomainUpdate {
 
             if (!commentArg.isEmpty()) {
                 configBuilder.comment(commentArg);
+            }
+
+            if (Boolean.parseBoolean(updateBehaviorArg)) {
+                DefaultCacheBehavior defaultBehavior = config.defaultCacheBehavior();
+
+                List<CacheBehavior> behaviorItems = buildNoCacheBehaviors(
+                        defaultBehavior.targetOriginId(),
+                        defaultBehavior.viewerProtocolPolicy(),
+                        defaultBehavior.allowedMethods());
+                CacheBehaviors behaviors = CacheBehaviors.builder()
+                        .items(behaviorItems)
+                        .quantity(behaviorItems.size())
+                        .build();
+                configBuilder.cacheBehaviors(behaviors);
             }
 
             UpdateDistributionRequest updateReq = UpdateDistributionRequest.builder()
@@ -145,6 +168,27 @@ public class DomainUpdate {
 
     private static String nullSafe(String value) {
         return value == null ? "-" : value;
+    }
+
+    private static final String NO_CACHE_POLICY_ID = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad";
+
+    private static List<CacheBehavior> buildNoCacheBehaviors(String targetOriginId,
+                                                              ViewerProtocolPolicy protocolPolicy,
+                                                              AllowedMethods allowedMethods) {
+        LambdaFunctionAssociations emptyLambda = LambdaFunctionAssociations.builder().quantity(0).build();
+        return NO_CACHE_EXTENSIONS.stream()
+                .map(ext -> CacheBehavior.builder()
+                        .pathPattern(ext)
+                        .targetOriginId(targetOriginId)
+                        .viewerProtocolPolicy(protocolPolicy)
+                        .allowedMethods(allowedMethods)
+                        .cachePolicyId(NO_CACHE_POLICY_ID)
+                        .smoothStreaming(false)
+                        .fieldLevelEncryptionId("")
+                        .lambdaFunctionAssociations(emptyLambda)
+                        .compress(true)
+                        .build())
+                .collect(java.util.stream.Collectors.toList());
     }
 
 }
