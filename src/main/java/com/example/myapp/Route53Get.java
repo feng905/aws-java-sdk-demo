@@ -84,14 +84,56 @@ public class Route53Get {
                 List<ResourceRecordSet> records = listRecordSets(route53Client, zone.id());
                 System.out.println("  --- 记录集 ---");
                 for (ResourceRecordSet record : records) {
-                    System.out.println("  类型: " + nullSafe(record.type() != null ? record.type().toString() : null)
-                            + " | 名称: " + nullSafe(record.name())
-                            + " | TTL: " + record.ttl());
-                    if (record.resourceRecords() != null) {
+                    System.out.println("  ┌────────────────────────────────────────");
+                    System.out.println("  │ 名称: " + nullSafe(record.name()));
+                    System.out.println("  │ 类型: " + nullSafe(record.type() != null ? record.type().toString() : null));
+
+                    // 路由策略
+                    String routingPolicy = resolveRoutingPolicy(record);
+                    System.out.println("  │ 路由策略: " + routingPolicy);
+
+                    // 路由策略详情
+                    if (record.weight() != null) {
+                        System.out.println("  │   权重(Weight): " + record.weight());
+                    }
+                    if (record.failover() != null) {
+                        System.out.println("  │   故障转移(Failover): " + record.failover().toString());
+                    }
+                    if (record.region() != null) {
+                        System.out.println("  │   延迟路由区域(Region): " + record.region().toString());
+                    }
+                    if (record.geoLocation() != null) {
+                        System.out.println("  │   地理位置(GeoLocation): " + formatGeoLocation(record.geoLocation()));
+                    }
+                    if (record.multiValueAnswer() != null && record.multiValueAnswer()) {
+                        System.out.println("  │   多值应答(MultiValueAnswer): true");
+                    }
+                    if (record.setIdentifier() != null) {
+                        System.out.println("  │   标识符(SetIdentifier): " + record.setIdentifier());
+                    }
+
+                    // TTL
+                    System.out.println("  │ TTL: " + (record.ttl() != null ? record.ttl() : "-"));
+
+                    // 记录值
+                    if (record.aliasTarget() != null) {
+                        System.out.println("  │ 别名目标(AliasTarget):");
+                        System.out.println("  │   DNS名称: " + nullSafe(record.aliasTarget().dnsName()));
+                        System.out.println("  │   托管区域ID: " + nullSafe(record.aliasTarget().hostedZoneId()));
+                        System.out.println("  │   评估目标健康: " + record.aliasTarget().evaluateTargetHealth());
+                    } else if (record.resourceRecords() != null && !record.resourceRecords().isEmpty()) {
+                        System.out.println("  │ 记录值:");
                         for (ResourceRecord rr : record.resourceRecords()) {
-                            System.out.println("    值: " + nullSafe(rr.value()));
+                            System.out.println("  │   " + nullSafe(rr.value()));
                         }
                     }
+
+                    // 健康检查
+                    if (record.healthCheckId() != null && !record.healthCheckId().isEmpty()) {
+                        System.out.println("  │ 健康检查ID: " + record.healthCheckId());
+                    }
+
+                    System.out.println("  └────────────────────────────────────────");
                 }
             }
 
@@ -167,6 +209,48 @@ public class Route53Get {
 
     private static String nullSafe(String value) {
         return value == null ? "-" : value;
+    }
+
+    private static String resolveRoutingPolicy(ResourceRecordSet record) {
+        if (record.weight() != null) {
+            return "加权(Weighted)";
+        }
+        if (record.failover() != null) {
+            return "故障转移(Failover)";
+        }
+        if (record.region() != null) {
+            return "延迟(Latency)";
+        }
+        if (record.geoLocation() != null) {
+            return "地理位置(Geolocation)";
+        }
+        if (record.multiValueAnswer() != null && record.multiValueAnswer()) {
+            return "多值应答(MultiValueAnswer)";
+        }
+        if (record.aliasTarget() != null) {
+            return "别名(Alias)";
+        }
+        return "简单(Simple)";
+    }
+
+    private static String formatGeoLocation(software.amazon.awssdk.services.route53.model.GeoLocation geo) {
+        StringBuilder sb = new StringBuilder();
+        if (geo.continentCode() != null && !geo.continentCode().isEmpty()) {
+            sb.append("洲=").append(geo.continentCode());
+        }
+        if (geo.countryCode() != null && !geo.countryCode().isEmpty()) {
+            if (sb.length() > 0) {
+                sb.append(", ");
+            }
+            sb.append("国家=").append(geo.countryCode());
+        }
+        if (geo.subdivisionCode() != null && !geo.subdivisionCode().isEmpty()) {
+            if (sb.length() > 0) {
+                sb.append(", ");
+            }
+            sb.append("省/州=").append(geo.subdivisionCode());
+        }
+        return sb.length() > 0 ? sb.toString() : "-";
     }
 
 }
