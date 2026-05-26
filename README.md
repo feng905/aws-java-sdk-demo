@@ -67,6 +67,16 @@ mvn -q exec:java -Dexec.mainClass=com.example.myapp.DomainDelete \
   -Dexec.args="<accessKey> <secretKey> <region> <distributionId>"
 ```
 
+### AWS WAF For CloudFront
+
+```bash
+# Create an IP blacklist Web ACL and attach it to a CloudFront distribution
+mvn -q exec:java -Dexec.mainClass=com.example.myapp.WafCreate \
+  -Dexec.args="<accessKey> <secretKey> [region] <distributionId> [webAclName] [ipSetName] [blockedIps]"
+```
+
+Note: CloudFront 使用的 AWS WAF 必须部署在 `us-east-1`。`blockedIps` 默认示例值为 `10.0.0.0/32,192.168.0.0/32`。
+
 ### CloudFront Cache Policy
 
 ```bash
@@ -168,6 +178,15 @@ mvn -q exec:java -Dexec.mainClass=com.example.myapp.Route53Delete \
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `CF_DISTRIBUTION_ID` | Yes | CloudFront distribution ID |
+
+### AWS WAF For CloudFront — WafCreate
+
+| Variable | Required | Description | Default |
+|----------|----------|-------------|---------|
+| `CF_DISTRIBUTION_ID` | Yes | Target CloudFront distribution ID | — |
+| `WAF_WEB_ACL_NAME` | No | Web ACL name | `<distributionId>-BlacklistWebAcl` |
+| `WAF_IP_SET_NAME` | No | IPSet name | `<distributionId>-BlockedIpSet` |
+| `WAF_BLOCKED_IPS` | No | Comma-separated IPv4 CIDRs | `10.0.0.0/32,192.168.0.0/32` |
 
 ### CloudFront Distribution — DomainUpdate (additional)
 

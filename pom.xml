@@ -64,6 +64,11 @@
 
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
+            <artifactId>wafv2</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
             <artifactId>aws-crt-client</artifactId>
             <exclusions>
                 <exclusion>
