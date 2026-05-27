@@ -194,6 +194,7 @@ mvn -q exec:java -Dexec.mainClass=com.example.myapp.Route53Delete \
 |----------|----------|-------------|
 | `CF_ENABLED` | No | `true` or `false` to enable/disable |
 | `CF_COMMENT` | No | Distribution comment |
+| `CF_ENABLE_IP_BLACKLIST` | No | `true` to enable CloudFront Function based IP blacklist (default `false`) |
 
 ### Route53 — Create / Update / Delete
 
