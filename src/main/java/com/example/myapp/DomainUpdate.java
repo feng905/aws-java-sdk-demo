@@ -26,6 +26,10 @@ import software.amazon.awssdk.core.SdkBytes;
  * 6) comment（备注，可选）
  * 7) updateBehavior（是否更新缓存行为，true/false，可选）
  * 8) enableIpBlacklist（是否开启 IP 黑名单，true/false，可选，默认 false）
+ * 9) enableLogging（是否启用访问日志，true/false，可选）
+ * 10) loggingBucket（日志 S3 Bucket，启用日志时必填，格式：bucket.s3.amazonaws.com）
+ * 11) loggingPrefix（日志前缀，可选）
+ * 12) loggingIncludeCookies（日志是否包含 Cookie，true/false，可选，默认 false）
  *
  * 环境变量：
  * - AWS_ACCESS_KEY_ID
@@ -36,6 +40,10 @@ import software.amazon.awssdk.core.SdkBytes;
  * - CF_COMMENT
  * - CF_UPDATE_BEHAVIOR
  * - CF_ENABLE_IP_BLACKLIST
+ * - CF_ENABLE_LOGGING
+ * - CF_LOGGING_BUCKET
+ * - CF_LOGGING_PREFIX
+ * - CF_LOGGING_INCLUDE_COOKIES
  *
  * 运行示例（推荐：环境变量方式）：
  * export AWS_ACCESS_KEY_ID="<YOUR_AK>"
@@ -46,6 +54,10 @@ import software.amazon.awssdk.core.SdkBytes;
  * export CF_COMMENT="Updated comment"
  * export CF_UPDATE_BEHAVIOR="true"
  * export CF_ENABLE_IP_BLACKLIST="false"
+ * export CF_ENABLE_LOGGING="true"
+ * export CF_LOGGING_BUCKET="my-logs.s3.amazonaws.com"
+ * export CF_LOGGING_PREFIX="cf-logs/"
+ * export CF_LOGGING_INCLUDE_COOKIES="false"
  * mvn -q exec:java -Dexec.mainClass=com.example.myapp.DomainUpdate
  */
 public class DomainUpdate {
@@ -62,6 +74,10 @@ public class DomainUpdate {
     private static final String ENV_CF_COMMENT = "CF_COMMENT";
     private static final String ENV_CF_UPDATE_BEHAVIOR = "CF_UPDATE_BEHAVIOR";
     private static final String ENV_CF_ENABLE_IP_BLACKLIST = "CF_ENABLE_IP_BLACKLIST";
+    private static final String ENV_CF_ENABLE_LOGGING = "CF_ENABLE_LOGGING";
+    private static final String ENV_CF_LOGGING_BUCKET = "CF_LOGGING_BUCKET";
+    private static final String ENV_CF_LOGGING_PREFIX = "CF_LOGGING_PREFIX";
+    private static final String ENV_CF_LOGGING_INCLUDE_COOKIES = "CF_LOGGING_INCLUDE_COOKIES";
 
     private static final List<String> NO_CACHE_EXTENSIONS = Arrays.asList("*.php", "*.jsp", "*.asp");
     private static final String IP_BLACKLIST_FUNCTION_NAME_PREFIX = "ip-blacklist-";
@@ -99,6 +115,10 @@ public class DomainUpdate {
         String commentArg = resolveValue(args, 5, ENV_CF_COMMENT, "");
         String updateBehaviorArg = resolveValue(args, 6, ENV_CF_UPDATE_BEHAVIOR, "false");
         String enableIpBlacklistArg = resolveValue(args, 7, ENV_CF_ENABLE_IP_BLACKLIST, "false");
+        String enableLoggingArg = resolveValue(args, 8, ENV_CF_ENABLE_LOGGING, "");
+        String loggingBucketArg = resolveValue(args, 9, ENV_CF_LOGGING_BUCKET, "");
+        String loggingPrefixArg = resolveValue(args, 10, ENV_CF_LOGGING_PREFIX, "");
+        String loggingIncludeCookiesArg = resolveValue(args, 11, ENV_CF_LOGGING_INCLUDE_COOKIES, "false");
 
         if (accessKeyId.isEmpty() || secretAccessKey.isEmpty()) {
             System.err.println("AK/SK 未提供。请通过参数或环境变量提供：AWS_ACCESS_KEY_ID、AWS_SECRET_ACCESS_KEY");
@@ -106,6 +126,10 @@ public class DomainUpdate {
         }
         if (distributionId.isEmpty()) {
             System.err.println("Distribution ID 未提供。请通过参数或环境变量 CF_DISTRIBUTION_ID 传入");
+            return;
+        }
+        if (!enableLoggingArg.isEmpty() && Boolean.parseBoolean(enableLoggingArg) && loggingBucketArg.isEmpty()) {
+            System.err.println("启用 Logging 需要提供 S3 Bucket。请通过参数或环境变量 CF_LOGGING_BUCKET 传入（格式：bucket.s3.amazonaws.com）");
             return;
         }
 
@@ -128,13 +152,25 @@ public class DomainUpdate {
                 commentArg,
                 shouldUpdateBehavior,
                 shouldEnableIpBlacklist,
-                functionArn);
+                functionArn,
+                enableLoggingArg,
+                loggingBucketArg,
+                loggingPrefixArg,
+                loggingIncludeCookiesArg);
 
             System.out.println("更新成功");
             System.out.println("区域: " + region.id());
             System.out.println("Distribution ID: " + nullSafe(distributionId));
             System.out.println("Distribution 域名: " + nullSafe(updateResp.distribution().domainName()));
             System.out.println("状态: " + nullSafe(updateResp.distribution().status()));
+            if (!enableLoggingArg.isEmpty()) {
+                boolean loggingEnabled = Boolean.parseBoolean(enableLoggingArg);
+                System.out.println("访问日志: " + (loggingEnabled ? "已启用" : "已禁用"));
+                if (loggingEnabled) {
+                    System.out.println("日志 Bucket: " + nullSafe(loggingBucketArg));
+                    System.out.println("日志前缀: " + nullSafe(loggingPrefixArg.isEmpty() ? "(默认)" : loggingPrefixArg));
+                }
+            }
             System.out.println("提示：Distribution 更新可能需要几分钟完成");
 
         } catch (CloudFrontException ex) {
@@ -202,7 +238,11 @@ public class DomainUpdate {
                                                                           String commentArg,
                                                                           boolean shouldUpdateBehavior,
                                                                           boolean shouldEnableIpBlacklist,
-                                                                          String functionArn) {
+                                                                          String functionArn,
+                                                                          String enableLoggingArg,
+                                                                          String loggingBucketArg,
+                                                                          String loggingPrefixArg,
+                                                                          String loggingIncludeCookiesArg) {
         CloudFrontException lastException = null;
         for (int attempt = 0; attempt < MAX_RETRY_ATTEMPTS; attempt++) {
             GetDistributionResponse getResp = cloudFrontClient.getDistribution(GetDistributionRequest.builder()
@@ -216,7 +256,13 @@ public class DomainUpdate {
                     commentArg,
                     shouldUpdateBehavior,
                     shouldEnableIpBlacklist,
-                    functionArn);
+                    functionArn,
+                    enableLoggingArg,
+                    loggingBucketArg,
+                    loggingPrefixArg,
+                    loggingIncludeCookiesArg);
+
+            System.out.println("更新后的 DistributionConfig: " + updatedConfig);
 
             try {
                 return cloudFrontClient.updateDistribution(UpdateDistributionRequest.builder()
@@ -242,7 +288,11 @@ public class DomainUpdate {
                                                                      String commentArg,
                                                                      boolean shouldUpdateBehavior,
                                                                      boolean shouldEnableIpBlacklist,
-                                                                     String functionArn) {
+                                                                     String functionArn,
+                                                                     String enableLoggingArg,
+                                                                     String loggingBucketArg,
+                                                                     String loggingPrefixArg,
+                                                                     String loggingIncludeCookiesArg) {
         DistributionConfig.Builder configBuilder = config.toBuilder();
         DefaultCacheBehavior defaultBehavior = config.defaultCacheBehavior();
         CacheBehaviors cacheBehaviors = config.cacheBehaviors();
@@ -278,6 +328,22 @@ public class DomainUpdate {
                         .quantity(updatedBehaviors.size())
                         .items(updatedBehaviors)
                         .build();
+            }
+        }
+
+        if (!enableLoggingArg.isEmpty()) {
+            boolean enableLogging = Boolean.parseBoolean(enableLoggingArg);
+            if (enableLogging) {
+                configBuilder.logging(LoggingConfig.builder()
+                        .enabled(true)
+                        .bucket(loggingBucketArg)
+                        .prefix(loggingPrefixArg.isEmpty() ? "" : loggingPrefixArg)
+                        .includeCookies(Boolean.parseBoolean(loggingIncludeCookiesArg))
+                        .build());
+            } else {
+                configBuilder.logging(LoggingConfig.builder()
+                        .enabled(false)
+                        .build());
             }
         }
 
