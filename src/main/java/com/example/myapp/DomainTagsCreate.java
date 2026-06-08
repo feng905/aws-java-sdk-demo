@@ -8,6 +8,7 @@ import software.amazon.awssdk.services.cloudfront.CloudFrontClient;
 import software.amazon.awssdk.services.cloudfront.model.CloudFrontException;
 import software.amazon.awssdk.services.cloudfront.model.GetDistributionRequest;
 import software.amazon.awssdk.services.cloudfront.model.Tag;
+import software.amazon.awssdk.services.cloudfront.model.ListTagsForResourceRequest;
 import software.amazon.awssdk.services.cloudfront.model.TagResourceRequest;
 import software.amazon.awssdk.services.cloudfront.model.Tags;
 
@@ -76,10 +77,6 @@ public class DomainTagsCreate {
         }
 
         boolean enableTags = Boolean.parseBoolean(enableTagsArg);
-        if (!enableTags) {
-            System.out.println("标签创建已关闭（CF_ENABLE_TAGS=" + enableTagsArg + "），跳过标签操作");
-            return;
-        }
 
         Region region = resolveRegion(regionArg);
         AwsBasicCredentials credentials = AwsBasicCredentials.create(accessKeyId, secretAccessKey);
@@ -91,22 +88,38 @@ public class DomainTagsCreate {
 
             String distributionArn = getDistributionArn(cloudFrontClient, distributionId);
 
-            Tags tags = Tags.builder()
-                    .items(Tag.builder().key(TAG_NAME_KEY).value(TAG_NAME_VALUE).build(),
-                           Tag.builder().key(TAG_MY_KEY).value(TAG_MY_VALUE).build())
-                    .build();
+            if(enableTags) {
+                Tags tags = Tags.builder()
+                        .items(Tag.builder().key(TAG_NAME_KEY).value(TAG_NAME_VALUE).build(),
+                            Tag.builder().key(TAG_MY_KEY).value(TAG_MY_VALUE).build())
+                        .build();
 
-            cloudFrontClient.tagResource(TagResourceRequest.builder()
-                    .resource(distributionArn)
-                    .tags(tags)
-                    .build());
+                cloudFrontClient.tagResource(TagResourceRequest.builder()
+                        .resource(distributionArn)
+                        .tags(tags)
+                        .build());
 
-            System.out.println("标签创建成功");
-            System.out.println("区域: " + region.id());
-            System.out.println("Distribution ID: " + nullSafe(distributionId));
-            System.out.println("标签列表:");
-            System.out.println("  - " + TAG_NAME_KEY + ": " + TAG_NAME_VALUE);
-            System.out.println("  - " + TAG_MY_KEY + ": " + TAG_MY_VALUE);
+                System.out.println("标签创建成功");
+                System.out.println("区域: " + region.id());
+                System.out.println("Distribution ID: " + nullSafe(distributionId));
+            }else {
+                System.out.println("标签创建已关闭（CF_ENABLE_TAGS=" + enableTagsArg + "），跳过创建标签操作");
+            }
+
+            System.out.println("正在获取所有标签...");
+            Tags currentTags = cloudFrontClient.listTagsForResource(ListTagsForResourceRequest.builder()
+                            .resource(distributionArn)
+                            .build())
+                    .tags();
+
+            if (currentTags.items() == null || currentTags.items().isEmpty()) {
+                System.out.println("当前标签列表: (无)");
+            } else {
+                System.out.println("当前标签列表:");
+                for (Tag t : currentTags.items()) {
+                    System.out.println("  - " + nullSafe(t.key()) + ": " + nullSafe(t.value()));
+                }
+            }
 
         } catch (CloudFrontException ex) {
             AwsErrorDetails details = ex.awsErrorDetails();
